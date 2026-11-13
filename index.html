@@ -1,4 +1,4 @@
-<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,-apple-system,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style></head><body>
+<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0b6e6e"><link rel="manifest" href="manifest-hasr.json"><style>:root{color-scheme:light;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,-apple-system,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style></head><body>
 <title>حصر المدارس</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1361,10 +1361,25 @@ main{padding-block:14px 120px}
     if(!state.schools.some(function(s){return s.id===state.cur})) state.cur=state.schools[0].id;
     state.schools.forEach(normSchool);
     if(!state.tpl||typeof state.tpl!=='object') state.tpl={};
+    /* رابط من صفحة «مواعيدي»: index.html#school=مدرسة 40 يفتح هذه المدرسة، وينشئها إن لم تكن موجودة */
+    try{
+      var hm=location.hash.match(/^#school=(.+)$/);
+      if(hm){
+        var want=decodeURIComponent(hm[1]).replace(/\s+/g,' ').trim().slice(0,80), found=state.schools.find(function(x){return x.name===want});
+        if(!found){
+          var only=state.schools.length===1&&state.schools[0].name==='المدرسة 1'&&filled(state.schools[0])===0&&countPhotos(state.schools[0])===0;
+          if(only){found=state.schools[0]; found.name=want}
+          else{found=newSchool(want); state.schools.push(found)}
+        }
+        if(want){state.cur=found.id; saveSoon()}
+        try{history.replaceState(null,'',location.pathname+location.search)}catch(x){}
+      }
+    }catch(e){}
     refreshAll(); ensureThumbs();
     try{ if(navigator.storage&&navigator.storage.persist) navigator.storage.persist() }catch(e){}
   })();
 })();
 </script>
 
+<script>try{if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost')) navigator.serviceWorker.register('sw.js').catch(function(){})}catch(e){}</script>
 </body></html>
