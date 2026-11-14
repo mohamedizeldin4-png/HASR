@@ -445,10 +445,11 @@ main{padding-block:14px 120px}
     return new Blob(this.parts.concat(this.cd,[e.buffer]),{type:'application/zip'});
   };
   /* يقسّم الصور على عدة ملفات ZIP صغيرة (PART صورة لكل ملف) حتى لا تمتلئ ذاكرة الهاتف */
-  var PART=100, PARTB=48*1048576;
-  function MultiZip(){this.done=[];this.z=new ZipW();this.n=0;this.b=0;this.idx=0}
+  /* الأصل: ملف واحد. لا يُقسَّم إلا إذا تجاوز الحجم الحد، أو فشل التجهيز فيُعاد بأجزاء أصغر */
+  var BIGB=400*1048576, SMALLB=40*1048576;
+  function MultiZip(limB){this.done=[];this.z=new ZipW();this.n=0;this.b=0;this.idx=0;this.lim=limB||BIGB}
   MultiZip.prototype.addBlob=async function(name,blob){
-    if(this.n>0&&(this.n>=PART||this.b+blob.size>PARTB)){this.done.push(this.z);this.z=new ZipW();this.n=0;this.b=0;this.idx++}
+    if(this.n>0&&this.b+blob.size>this.lim){this.done.push(this.z);this.z=new ZipW();this.n=0;this.b=0;this.idx++}
     await this.z.addBlob(name,blob); this.n++; this.b+=blob.size;
   };
   MultiZip.prototype.addTo=function(i,name,u8){var t=i<this.done.length?this.done[i]:this.z; t.addBytes(name,u8)};
@@ -994,11 +995,15 @@ main{padding-block:14px 120px}
     return missing;
   }
   function exportSchool(){wrap(async function(){
+    try{ await exportSchoolRun(BIGB) }
+    catch(e){ setBusy('تعذر تجهيز ملف واحد، أجزّئه إلى أجزاء أصغر…'); await sleep(400); await exportSchoolRun(SMALLB) }
+  })}
+  async function exportSchoolRun(limB){
     var s=cur(), total=countPhotos(s), k=0;
     setBusy('جارٍ تجهيز «'+s.name+'»…'); await sleep(30);
     /* اسم الملف المنزَّل بحروف لاتينية فقط، لأن بعض المتصفحات تُسقط الاسم العربي وتحفظه باسم "download" */
     var idx=state.schools.indexOf(s)+1, slug=String(s.name).replace(/[^A-Za-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,24); if(!/[A-Za-z]/.test(slug)) slug='';
-    var z=new MultiZip(), base='hasr-school'+idx+(slug?'-'+slug:'');
+    var z=new MultiZip(limB), base='hasr-school'+idx+(slug?'-'+slug:'');
     var xb=makeXlsx(schoolSheets(s)), root=cleanName(s.name)+'/';
     await z.addBlob(root+XFOLD+'/'+cleanName(s.name)+'.xlsx',xb); z.n=0; z.b=0; /* ورقة الحصر لا تُحسب من الصور */
     /* hasr-data.json يجعل الملف قابلاً للاستيراد في هاتف آخر؛ لكل جزء بيانه الخاص */
@@ -1014,7 +1019,7 @@ main{padding-block:14px 120px}
     }
     setBusy('جارٍ إنهاء الملفات…'); await sleep(30);
     setReadyParts(base+'-'+stamp(),z.finish(),(total-missing)+' صورة'+(missing?' (تعذر قراءة '+missing+')':''));
-  })}
+  }
   function exportXlsx(){wrap(async function(){
     setBusy('جارٍ تجهيز ملف Excel…'); await sleep(30);
     var wd=[22,32].concat(state.schools.map(function(){return 14}),[10]);
@@ -1022,16 +1027,20 @@ main{padding-block:14px 120px}
     setReady('hasr-all-schools-'+stamp()+'.xlsx',new Blob([wb],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),state.schools.length+' مدرسة');
   })}
   function exportZip(){wrap(async function(){
+    try{ await exportZipRun(BIGB) }
+    catch(e){ setBusy('تعذر تجهيز ملف واحد، أجزّئه إلى أجزاء أصغر…'); await sleep(400); await exportZipRun(SMALLB) }
+  })}
+  async function exportZipRun(limB){
     var total=state.schools.reduce(function(n,s){return n+countPhotos(s)},0);
     if(!total){toast('لا توجد صور بعد');return}
-    var k=0, miss=0, used={}, z=new MultiZip();
+    var k=0, miss=0, used={}, z=new MultiZip(limB);
     setBusy('جارٍ تجهيز الصور…'); await sleep(30);
     for(var a=0;a<state.schools.length;a++){
       var s=state.schools[a], folder=cleanName(s.name); used[folder]=(used[folder]||0)+1; if(used[folder]>1) folder+=' ('+used[folder]+')';
       miss+=await addPhotos(z,s,folder+'/',function(){k++;setBusy('جارٍ تجهيز الصور '+k+' / '+total)});
     }
     setReadyParts('hasr-all-photos-'+stamp(),z.finish(),(total-miss)+' صورة'+(miss?' (تعذر قراءة '+miss+')':''));
-  })}
+  }
   async function copyTable(){
     var txt=rows().map(function(r){return r.join('\t')}).join('\n');
     try{await navigator.clipboard.writeText(txt); toast('تم نسخ الجدول'); return}catch(e){}
