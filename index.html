@@ -274,6 +274,7 @@ main{padding-block:14px 120px}
         <div class="rt">الملف جاهز</div>
         <div class="rname" id="readyName"></div>
         <div class="rsub" id="readySub"></div>
+        <div id="rdParts"></div>
         <div>
           <button class="btn" id="rdDown" style="width:100%">تنزيل الملف</button>
         </div>
@@ -312,7 +313,7 @@ main{padding-block:14px 120px}
         <li><b>المؤشر أعلى الصفحة:</b> «محفوظ تلقائياً» يعني أن بياناتك وصورك محفوظة على هذا الهاتف. إن ظهر «غير محفوظ» فلا تغلق الصفحة وصدّر المدرسة فوراً.</li>
         <li><b>استخدم نفس الصفحة ونفس المتصفح دائماً.</b> لا تمسح بيانات المتصفح ولا تفتح الصفحة في وضع التصفح الخفي.</li>
         <li><b>الجولة:</b> ابدأ من «البيانات» واختر عدد الطوابق (حتى 5). ثم امشِ بالترتيب من الشريط أعلى الصفحة: الساحة ← الأرضي ← بقية الطوابق ← السطح. كل مكان يعرض البنود المتوقعة فيه فقط.</li>
-        <li><b>في كل مكان:</b> في أعلاه مربع «صور» واحد لكل صور المكان (حتى 100 صورة). ثم سجّل أعداد البنود بالزر + أو بكتابة الرقم. ما لا تجده اتركه فارغاً، ثم اضغط «انتهيت… التالي».</li>
+        <li><b>في كل مكان:</b> في أعلاه مربع «صور» واحد لكل صور المكان (حتى 500 صورة). ثم سجّل أعداد البنود بالزر + أو بكتابة الرقم. ما لا تجده اتركه فارغاً، ثم اضغط «انتهيت… التالي».</li>
         <li><b>بند غير موجود في قائمة المكان؟</b> اضغط «عرض بقية البنود» أسفل القائمة.</li>
         <li><b>الفصول المتشابهة:</b> في الطابق اضغط «إضافة غرف متشابهة»، عُدّ فصلاً واحداً واكتب عدد الفصول. تُضاف الأعداد دفعة واحدة، وعدّل بعدها ما يختلف.</li>
         <li><b>أسرع طريقة للتصوير:</b> صوّر المكان بكاميرا الهاتف العادية أثناء الجولة، ثم في مربع صور المكان اضغط «إضافة من المعرض» واختر صوره. تُحفظ بترتيب اختيارك وتُصدَّر مرقمة.</li>
@@ -376,7 +377,7 @@ main{padding-block:14px 120px}
   /* بنود للتصوير فقط، بلا عدد */
   var PHOTO={};
   var SUBS={bld9:[['fr','افرنجي'],['ar','عربي']]};
-  var MAXP=100, PHN=function(l){return 'ph_'+l}, zp=function(n,w){var t=String(n);while(t.length<w)t='0'+t;return t};
+  var MAXP=500, PHN=function(l){return 'ph_'+l}, zp=function(n,w){var t=String(n);while(t.length<w)t='0'+t;return t};
   var LTAB={yd:'الساحة',g:'الأرضي',f1:'الأول',f2:'الثاني',f3:'الثالث',f4:'الرابع',rf:'السطح',na:'بلا مكان'}, LNAME={na:'بنود بلا مكان محدد'};
   LOCS.forEach(function(l){LNAME[l[0]]=l[1]});
   /* مربع صور واحد لكل مكان: معرّفه ph_ + رمز المكان. ليس بنداً في الحصر */
@@ -443,6 +444,16 @@ main{padding-block:14px 120px}
     e.setUint16(8,this.n,true);e.setUint16(10,this.n,true);e.setUint32(12,this.cdSize,true);e.setUint32(16,this.off,true);e.setUint16(20,0,true);
     return new Blob(this.parts.concat(this.cd,[e.buffer]),{type:'application/zip'});
   };
+  /* يقسّم الصور على عدة ملفات ZIP صغيرة (PART صورة لكل ملف) حتى لا تمتلئ ذاكرة الهاتف */
+  var PART=100, PARTB=48*1048576;
+  function MultiZip(){this.done=[];this.z=new ZipW();this.n=0;this.b=0;this.idx=0}
+  MultiZip.prototype.addBlob=async function(name,blob){
+    if(this.n>0&&(this.n>=PART||this.b+blob.size>PARTB)){this.done.push(this.z);this.z=new ZipW();this.n=0;this.b=0;this.idx++}
+    await this.z.addBlob(name,blob); this.n++; this.b+=blob.size;
+  };
+  MultiZip.prototype.addTo=function(i,name,u8){var t=i<this.done.length?this.done[i]:this.z; t.addBytes(name,u8)};
+  MultiZip.prototype.count=function(){return this.done.length+1};
+  MultiZip.prototype.finish=function(){return this.done.concat([this.z]).map(function(w){return w.finish()})};
   var xesc=function(t){return String(t).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')};
   function colL(i){var s='';i++;while(i>0){var m=(i-1)%26;s=String.fromCharCode(65+m)+s;i=Math.floor((i-1)/26)}return s}
   /* sheets: [{name, rows, widths, bold:[فهارس الصفوف], freeze:عدد الصفوف المثبّتة}] */
@@ -745,7 +756,7 @@ main{padding-block:14px 120px}
     var s=cur(), sid=s.id, ids=Object.keys(s.p);
     for(var i=0;i<ids.length;i++){
       var arr=s.p[ids[i]]||[];
-      for(var j=0;j<arr.length;j++){
+      for(var j=Math.max(0,arr.length-5);j<arr.length;j++){
         var pid=arr[j]; if(urls.has(pid)) continue;
         var b=await getPhoto(pid);
         if(b&&b.size!==undefined){urls.set(pid,URL.createObjectURL(b))}
@@ -809,14 +820,33 @@ main{padding-block:14px 120px}
     toast(msg);
     if(!$('#photoView').hidden){pending={sid:s.id,id:p.id,loc:p.loc};renderGallery()}
   }
+  /* الصور القديمة تُحمَّل عند فتح المعرض فقط، لا عند فتح الصفحة */
+  var galGen=0;
+  async function fillGallery(arr,bid){
+    var gen=++galGen;
+    for(var i=0;i<arr.length;i++){
+      if(gen!==galGen||!pending||pending.id!==bid||$('#photoView').hidden) return;
+      var pid=arr[i]; if(urls.has(pid)) continue;
+      var b=await getPhoto(pid); if(!b||b.size===undefined) continue;
+      var u=URL.createObjectURL(b); urls.set(pid,u);
+      if(gen!==galGen){return}
+      var el=$('#gal .ph[data-pid="'+pid+'"]');
+      if(el&&!el.querySelector('img')){
+        var im=document.createElement('img'); im.alt='صورة '+(i+1); im.loading='lazy'; im.decoding='async'; im.src=u;
+        if(el.firstChild&&el.firstChild.nodeType===3) el.removeChild(el.firstChild);
+        el.insertBefore(im,el.firstChild);
+      }
+      if(i%8===7) await sleep(0);
+    }
+  }
   function renderGallery(){
     var s=cur(), id=pending&&pending.id, loc=pending&&pending.loc; if(!id) return;
     var arr=photosAt(s,id,loc), h='';
     arr.forEach(function(pid,i){
       var u=urls.get(pid);
-      h+='<div class="ph">'+(u?'<img alt="صورة '+(i+1)+'" src="'+u+'">':'…')+'<span class="no">'+(i+1)+'</span><button class="x" data-delph="'+pid+'" aria-label="حذف الصورة">×</button></div>';
+      h+='<div class="ph" data-pid="'+pid+'">'+(u?'<img alt="صورة '+(i+1)+'" loading="lazy" decoding="async" src="'+u+'">':'…')+'<span class="no">'+(i+1)+'</span><button class="x" data-delph="'+pid+'" aria-label="حذف الصورة">×</button></div>';
     });
-    $('#gal').innerHTML=h;
+    $('#gal').innerHTML=h; fillGallery(arr,id);
     var full=(s.p[id]||[]).length>=MAXP;
     $('#phRetake').disabled=full; $('#phPick').disabled=full;
     var lb=$('#phLive'); lb.hidden=!liveOK; lb.disabled=full;
@@ -910,18 +940,33 @@ main{padding-block:14px 120px}
   }
   function setReady(name,blob,extra){
     ready={name:name,blob:blob};
+    $('#rdParts').innerHTML=''; $('#rdDown').hidden=false;
     $('#readyName').textContent=name; $('#readySub').textContent=fmtSize(blob.size)+(extra?' — '+extra:'');
     $('#readyBox').hidden=false; $('#exportSheet .sheet').scrollTop=0;
   }
-  async function doDownload(){
+  /* عدة ملفات: زر تنزيل لكل جزء */
+  function setReadyParts(base,blobs,extra){
+    if(blobs.length===1){setReady(base+'.zip',blobs[0],extra);return}
+    var tot=0; blobs.forEach(function(b){tot+=b.size});
+    ready={parts:blobs.map(function(b,i){return {name:base+'-part'+(i+1)+'of'+blobs.length+'.zip',blob:b}})};
+    $('#rdDown').hidden=true;
+    $('#readyName').textContent=blobs.length+' ملفات ZIP';
+    $('#readySub').textContent=fmtSize(tot)+(extra?' — '+extra:'')+' — نزّل كل جزء على حدة وأرسلها كلها';
+    $('#rdParts').innerHTML=ready.parts.map(function(f,i){
+      return '<button class="btn" data-part="'+i+'" style="width:100%;margin-bottom:8px">تنزيل الجزء '+(i+1)+' من '+blobs.length+' ('+fmtSize(f.blob.size)+')</button>';
+    }).join('');
+    $('#readyBox').hidden=false; $('#exportSheet .sheet').scrollTop=0;
+  }
+  async function doDownload(pi){
     if(!ready) return;
+    var f=ready.parts?ready.parts[pi]:ready; if(!f) return;
     if(dl){
-      try{await dl.save({filename:ready.name,data:ready.blob});toast('تم الحفظ');return}
+      try{await dl.save({filename:f.name,data:f.blob});toast('تم الحفظ');return}
       catch(e){if(e&&e.code==='declined') return}
     }
     try{
-      var u=URL.createObjectURL(ready.blob), a=document.createElement('a');
-      a.href=u; a.download=ready.name; a.style.display='none'; document.body.appendChild(a); a.click();
+      var u=URL.createObjectURL(f.blob), a=document.createElement('a');
+      a.href=u; a.download=f.name; a.style.display='none'; document.body.appendChild(a); a.click();
       setTimeout(function(){a.remove();try{URL.revokeObjectURL(u)}catch(x){}},60000);
       toast('بدأ التنزيل. تحقق من إشعارات التنزيلات.');
     }catch(e){toast('تعذر التنزيل. افتح الصفحة من Chrome وأعد المحاولة.')}
@@ -953,17 +998,22 @@ main{padding-block:14px 120px}
     setBusy('جارٍ تجهيز «'+s.name+'»…'); await sleep(30);
     /* اسم الملف المنزَّل بحروف لاتينية فقط، لأن بعض المتصفحات تُسقط الاسم العربي وتحفظه باسم "download" */
     var idx=state.schools.indexOf(s)+1, slug=String(s.name).replace(/[^A-Za-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,24); if(!/[A-Za-z]/.test(slug)) slug='';
-    var z=new ZipW(), base='hasr-school'+idx+(slug?'-'+slug:'');
+    var z=new MultiZip(), base='hasr-school'+idx+(slug?'-'+slug:'');
     var xb=makeXlsx(schoolSheets(s)), root=cleanName(s.name)+'/';
-    await z.addBlob(root+XFOLD+'/'+cleanName(s.name)+'.xlsx',xb);
-    /* hasr-data.json يجعل الملف قابلاً للاستيراد في هاتف آخر */
-    var man={app:'hasr',v:2,school:{name:s.name,info:s.info,c:s.c,f:s.f,n:s.n,x:s.x,d:s.d},photos:{}};
+    await z.addBlob(root+XFOLD+'/'+cleanName(s.name)+'.xlsx',xb); z.n=0; z.b=0; /* ورقة الحصر لا تُحسب من الصور */
+    /* hasr-data.json يجعل الملف قابلاً للاستيراد في هاتف آخر؛ لكل جزء بيانه الخاص */
+    var mans=[];
     var missing=await addPhotos(z,s,root,function(){k++;setBusy('جارٍ تجهيز الصور '+k+' / '+total)},function(iid,nm,pid){
-      (man.photos[iid]=man.photos[iid]||[]).push(nm);
+      var m=mans[z.idx]=mans[z.idx]||{}; (m[iid]=m[iid]||[]).push(nm);
     });
-    z.addBytes(root+XFOLD+'/hasr-data.json',enc.encode(JSON.stringify(man)));
-    var out=z.finish();
-    setReady(base+'-'+stamp()+'.zip',out,(total-missing)+' صورة'+(missing?' (تعذر قراءة '+missing+')':''));
+    var np=z.count();
+    for(var pi=0;pi<np;pi++){
+      var man={app:'hasr',v:2,school:{name:s.name,info:s.info,c:s.c,f:s.f,n:s.n,x:s.x,d:s.d},photos:mans[pi]||{}};
+      if(np>1){man.part=pi+1;man.parts=np}
+      z.addTo(pi,root+XFOLD+'/hasr-data.json',enc.encode(JSON.stringify(man)));
+    }
+    setBusy('جارٍ إنهاء الملفات…'); await sleep(30);
+    setReadyParts(base+'-'+stamp(),z.finish(),(total-missing)+' صورة'+(missing?' (تعذر قراءة '+missing+')':''));
   })}
   function exportXlsx(){wrap(async function(){
     setBusy('جارٍ تجهيز ملف Excel…'); await sleep(30);
@@ -974,13 +1024,13 @@ main{padding-block:14px 120px}
   function exportZip(){wrap(async function(){
     var total=state.schools.reduce(function(n,s){return n+countPhotos(s)},0);
     if(!total){toast('لا توجد صور بعد');return}
-    var k=0, miss=0, used={}, z=new ZipW();
+    var k=0, miss=0, used={}, z=new MultiZip();
     setBusy('جارٍ تجهيز الصور…'); await sleep(30);
     for(var a=0;a<state.schools.length;a++){
       var s=state.schools[a], folder=cleanName(s.name); used[folder]=(used[folder]||0)+1; if(used[folder]>1) folder+=' ('+used[folder]+')';
       miss+=await addPhotos(z,s,folder+'/',function(){k++;setBusy('جارٍ تجهيز الصور '+k+' / '+total)});
     }
-    setReady('hasr-all-photos-'+stamp()+'.zip',z.finish(),(total-miss)+' صورة'+(miss?' (تعذر قراءة '+miss+')':''));
+    setReadyParts('hasr-all-photos-'+stamp(),z.finish(),(total-miss)+' صورة'+(miss?' (تعذر قراءة '+miss+')':''));
   })}
   async function copyTable(){
     var txt=rows().map(function(r){return r.join('\t')}).join('\n');
@@ -1162,7 +1212,8 @@ main{padding-block:14px 120px}
       var find=function(nm){for(var i=0;i<bases.length;i++){var e=byName[bases[i]+nm]; if(e) return e} return null};
       var d=JSON.parse(new TextDecoder('utf-8').decode(await readBuf(await zipBlob(file,me,'application/json'))));
       if(!d||d.app!=='hasr'||!d.school) throw new Error('data');
-      var ns=buildImported(d.school), ph=(d.photos&&typeof d.photos==='object')?d.photos:{}, locs=(d.locs&&typeof d.locs==='object')?d.locs:{};
+      var ex=(d.parts>1)?state.schools.find(function(x){var nm0=String(d.school.name||'').replace(/\s+/g,' ').trim().slice(0,80); return x.pt&&(x.name===nm0||x.name.indexOf(nm0+' (مستوردة')===0)}):null;
+      var ns=ex||buildImported(d.school), ph=(d.photos&&typeof d.photos==='object')?d.photos:{}, locs=(d.locs&&typeof d.locs==='object')?d.locs:{};
       /* ملفات النسخ السابقة تحمل صور كل بند: توضع في مربع صور مكانها */
       var okeys=LOCS.map(function(l){return l[0]}).concat(['na']), plan=[], cnt={};
       Object.keys(ph).forEach(function(k){
@@ -1181,7 +1232,7 @@ main{padding-block:14px 120px}
         try{var blob=await zipBlob(file,e,'image/jpeg'), pid=uid(); await putPhoto(pid,blob); added.push(pid); (ns.p[plan[a][1]]=ns.p[plan[a][1]]||[]).push(pid)}catch(x){miss++}
         if(k%6===0) await sleep(0);
       }
-      state.schools.push(ns); added=[];
+      if(!ex){ if(d.parts>1) ns.pt=1; state.schools.push(ns)} added=[];
       setBusy(''); closeAll(); switchSchool(ns.id);
       toast('تم استيراد «'+ns.name+'»: '+(total-miss)+' صورة'+(miss?' (تعذر قراءة '+miss+')':''));
     }catch(err){
@@ -1194,7 +1245,7 @@ main{padding-block:14px 120px}
   var digits=function(v){return v.replace(/[٠-٩]/g,function(c){return c.charCodeAt(0)-1632}).replace(/[۰-۹]/g,function(c){return c.charCodeAt(0)-1776}).replace(/\D/g,'').slice(0,5)};
   function openExport(){
     var n=state.schools.reduce(function(c,s){return c+countPhotos(s)},0), cs=cur();
-    ready=null; $('#readyBox').hidden=true; setBusy('');
+    ready=null; $('#readyBox').hidden=true; $('#rdParts').innerHTML=''; setBusy('');
     $('#expSchoolT').textContent='تصدير «'+cs.name+'» (ورقة الحصر + الصور)';
     $('#expSchoolSub').textContent=filled(cs)+' / '+ALL.length+' بنداً، '+countPhotos(cs)+' صورة';
     $('#zipSub').textContent=n?(n+' صورة: مجلد لكل مدرسة وداخله مجلد لكل مكان'):'لا توجد صور بعد';
@@ -1284,6 +1335,7 @@ main{padding-block:14px 120px}
     if(t.id==='expZip'){exportZip();return}
     if(t.id==='expCopy'){copyTable();return}
     if(t.id==='rdDown'){doDownload();return}
+    if(t.dataset.part!==undefined){doDownload(+t.dataset.part);return}
     if(t.id==='phClose'){$('#photoView').hidden=true;return}
     if(t.id==='phRetake'){$('#camIn').click();return}
     if(t.id==='phPick'){$('#pickIn').click();return}
@@ -1294,7 +1346,7 @@ main{padding-block:14px 120px}
         if(ix>-1){
           parr.splice(ix,1); delete s3.pl[t.dataset.delph]; delPhoto(t.dataset.delph);
           if(!parr.length) delete s3.p[kid];
-          updatePhotoCard(); updateCounts(); saveSoon(); toast('تم حذف الصورة');
+          updatePhotoCard(); updateCounts(); saveSoon(); toast('تم حذف الصورة'); ensureThumbs();
           if(photosAt(s3,kid,pending.loc).length) renderGallery(); else $('#photoView').hidden=true;
         }
       }

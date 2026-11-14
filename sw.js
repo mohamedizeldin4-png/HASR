@@ -1,5 +1,5 @@
 /* يخزّن الصفحتين على الهاتف بعد أول فتح بالإنترنت، فتعملان بعدها دون اتصال */
-var V='hasr-pwa-v2';
+var V='hasr-pwa-v3';
 var CORE=['./','./index.html','./manifest-hasr.json','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',function(e){
   e.waitUntil(caches.open(V).then(function(c){return Promise.all(CORE.map(function(u){return c.add(u).catch(function(){})}))}).then(function(){return self.skipWaiting()}));
