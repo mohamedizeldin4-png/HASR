@@ -288,6 +288,7 @@ main{padding-block:14px 120px}
       <button class="opt" id="expXlsx"><b>ملف Excel لكل المدارس</b><span>إجمالي كل بند في كل مدرسة، وورقة ببيانات المدارس</span></button>
       <button class="opt" id="expZip"><b>صور كل المدارس في ZIP</b><span id="zipSub">مجلد لكل مدرسة، وداخله مجلد لكل مكان</span></button>
       <button class="opt" id="expShrink"><b>تحسين حجم الصور</b><span id="shrinkSub">يصغّر الصور الكبيرة ليسهل تصديرها، دون تغيير ترتيبها</span></button>
+      <p class="note" id="shrinkRes" hidden></p>
       <button class="opt" id="expCopy"><b>نسخ الجدول</b><span>للصقه في Excel أو Google Sheets أو واتساب</span></button>
       <p class="note">ملف المدرسة مرتب في مجلدات: «أوراق الحصر» وفيه ورقة الإجمالي لمدخل البيانات وورقة حسب المكان، ثم مجلد صور لكل مكان (السور + الساحة، الطابق الأرضي، الأول، السطح…)، وصوره مرقمة بترتيب إدخالها.</p>
       <p class="note">التصدير لا يحذف شيئاً: كل مدارسك وصورها تبقى هنا. صدّر كل مدرسة بعد انتهائها واحتفظ بالملف.</p>
@@ -382,7 +383,7 @@ main{padding-block:14px 120px}
   /* بنود للتصوير فقط، بلا عدد */
   var PHOTO={};
   var SUBS={bld9:[['fr','افرنجي'],['ar','عربي']]};
-  var VER='13', BIGP=700*1024, MAXP=500, PHN=function(l){return 'ph_'+l}, zp=function(n,w){var t=String(n);while(t.length<w)t='0'+t;return t};
+  var VER='14', BIGP=700*1024, MAXP=500, PHN=function(l){return 'ph_'+l}, zp=function(n,w){var t=String(n);while(t.length<w)t='0'+t;return t};
   var LTAB={yd:'الساحة',g:'الأرضي',f1:'الأول',f2:'الثاني',f3:'الثالث',f4:'الرابع',rf:'السطح',na:'بلا مكان'}, LNAME={na:'بنود بلا مكان محدد'};
   LOCS.forEach(function(l){LNAME[l[0]]=l[1]});
   /* مربع صور واحد لكل مكان: معرّفه ph_ + رمز المكان. ليس بنداً في الحصر */
@@ -451,7 +452,7 @@ main{padding-block:14px 120px}
   };
   /* يقسّم الصور على عدة ملفات ZIP صغيرة (PART صورة لكل ملف) حتى لا تمتلئ ذاكرة الهاتف */
   /* الأصل: ملف واحد. لا يُقسَّم إلا إذا تجاوز الحجم الحد، أو فشل التجهيز فيُعاد بأجزاء أصغر */
-  var BIGB=400*1048576, SMALLB=40*1048576;
+  var BIGB=1e15, SMALLB=1e15;
   function MultiZip(limB){this.done=[];this.z=new ZipW();this.n=0;this.b=0;this.idx=0;this.lim=limB||BIGB}
   MultiZip.prototype.addBlob=async function(name,blob){
     if(this.n>0&&this.b+blob.size>this.lim){this.done.push(this.z);this.z=new ZipW();this.n=0;this.b=0;this.idx++}
@@ -1037,7 +1038,7 @@ main{padding-block:14px 120px}
   function exportSchool(){wrap(async function(){
     lastWhy='';
     try{ await exportSchoolRun(BIGB) }
-    catch(e){ lastWhy=why(e); setBusy('تعذر تجهيز ملف واحد، أجزّئه إلى أجزاء أصغر…'); await sleep(400); await exportSchoolRun(SMALLB) }
+    catch(e){ throw e }
   })}
   async function exportSchoolRun(limB){
     var s=cur(), total=countPhotos(s), k=0;
@@ -1061,9 +1062,31 @@ main{padding-block:14px 120px}
     setBusy('جارٍ إنهاء الملفات…'); await sleep(30);
     setReadyParts(base+'-'+stamp(),z.finish(),(total-missing)+' صورة'+(missing?' (تعذر قراءة '+missing+')':''),total-missing);
   }
+  /* يقرأ ترويسة الملف دون فك ترميزه: الصيغة والأبعاد */
+  async function peekInfo(b){
+    var t=(b&&b.type)||'';
+    try{
+      var u=new Uint8Array(await readBuf(b.slice(0,65536)));
+      if(u[0]===0xFF&&u[1]===0xD8){
+        var i=2;
+        while(i<u.length-9){
+          if(u[i]!==0xFF){i++;continue}
+          var m=u[i+1]; if(m===0xFF){i++;continue}
+          if(m>=0xC0&&m<=0xCF&&m!==0xC4&&m!==0xC8&&m!==0xCC){var h=(u[i+5]<<8)|u[i+6], w=(u[i+7]<<8)|u[i+8]; return {fmt:'JPEG',w:w,h:h,t:t}}
+          i+=2+((u[i+2]<<8)|u[i+3]);
+        }
+        return {fmt:'JPEG',t:t};
+      }
+      var tag=String.fromCharCode.apply(null,Array.prototype.slice.call(u,4,8));
+      if(tag==='ftyp') return {fmt:'HEIF/'+String.fromCharCode.apply(null,Array.prototype.slice.call(u,8,12)).trim(),t:t};
+      if(u[0]===0x89&&u[1]===0x50) return {fmt:'PNG',t:t};
+      return {fmt:'غير معروف',t:t};
+    }catch(e){return {fmt:'؟',t:t}}
+  }
+  function infoText(i){return (i.fmt||'؟')+(i.w?' '+i.w+'×'+i.h+' ('+Math.round(i.w*i.h/1e5)/10+' ميغابكسل)':'')+(i.t?' — '+i.t:'')}
   var scanTok=0;
   async function scanSizes(){
-    var tok=++scanTok, big=0, bigB=0, all=0, allB=0, el=$('#shrinkSub'), btn=$('#expShrink'), n=0;
+    var tok=++scanTok, big=0, bigB=0, all=0, allB=0, el=$('#shrinkSub'), btn=$('#expShrink'), n=0, ex=null, rs=$('#shrinkRes');
     el.textContent='جارٍ فحص أحجام الصور…'; btn.classList.remove('warn');
     for(var a=0;a<state.schools.length;a++){
       var sp=state.schools[a].p||{};
@@ -1071,18 +1094,18 @@ main{padding-block:14px 120px}
         for(var j=0;j<arr.length;j++){
           if(tok!==scanTok||$('#exportSheet').hidden) return;
           var b=await getPhoto(arr[j]); if(!b||b.size===undefined) continue;
-          all++; allB+=b.size; if(b.size>BIGP){big++;bigB+=b.size}
+          all++; allB+=b.size; if(b.size>BIGP){big++;bigB+=b.size; if(!ex) ex=b}
           if(++n%20===0) await sleep(0);
         }
       }
     }
     if(tok!==scanTok) return;
-    if(big){el.textContent=big+' صورة كبيرة ('+fmtSize(bigB)+') تُبطئ التصدير. اضغط هنا لتصغيرها (الجودة تبقى مناسبة للحصر)'; btn.classList.add('warn')}
-    else el.textContent=all?'كل الصور بحجم مناسب ('+all+' صورة، '+fmtSize(allB)+')':'لا توجد صور بعد';
+    if(big){el.textContent=big+' صورة كبيرة ('+fmtSize(bigB)+') تُبطئ التصدير. اضغط هنا لتصغيرها (الجودة تبقى مناسبة للحصر)'; btn.classList.add('warn'); if(ex){var pi=await peekInfo(ex); if(tok===scanTok){rs.hidden=false; rs.textContent='مثال من الصور الكبيرة: '+infoText(pi)}}}
+    else {rs.hidden=true; el.textContent=all?'كل الصور بحجم مناسب ('+all+' صورة، '+fmtSize(allB)+')':'لا توجد صور بعد'}
   }
   function shrinkAll(){wrap(async function(){
     var jobs=[]; state.schools.forEach(function(s){var sp=s.p||{}; Object.keys(sp).forEach(function(k){(sp[k]||[]).forEach(function(pid){jobs.push(pid)})})});
-    var done=0, n=0, saved=0, failed=0;
+    var done=0, n=0, saved=0, failed=0, ff=null, fe='';
     for(var i=0;i<jobs.length;i++){
       var pid=jobs[i]; setBusy('جارٍ تحسين حجم الصور '+(i+1)+' / '+jobs.length);
       var b=await getPhoto(pid); if(!b||b.size===undefined||b.size<=BIGP){ if(i%20===0) await sleep(0); continue }
@@ -1091,13 +1114,15 @@ main{padding-block:14px 120px}
         await putPhoto(pid,nb);
         if(urls.has(pid)){try{URL.revokeObjectURL(urls.get(pid))}catch(e){} urls.set(pid,URL.createObjectURL(nb))}
         saved+=b.size-nb.size; n++;
-      } else failed++;
+      } else { failed++; if(!ff){ff=await peekInfo(b); fe=shrinkErr} }
       await sleep(0);
     }
     setBusy(''); ready=null; $('#readyBox').hidden=true;
     toast(n?('صُغّرت '+n+' صورة ووُفّر '+fmtSize(saved)+(failed?'. تعذر تصغير '+failed:'')):(failed?'تعذر تصغير '+failed+' صورة على هذا الهاتف':'كل الصور بحجم مناسب'));
     var cs=cur(); $('#expSchoolSub').textContent=filled(cs)+' / '+ALL.length+' بنداً، '+countPhotos(cs)+' صورة';
-    scanSizes(); renderGalleryIfOpen();
+    renderGalleryIfOpen(); await scanSizes();
+    var rs=$('#shrinkRes');
+    if(failed){ rs.hidden=false; rs.textContent='تعذر تصغير '+failed+' صورة'+(n?' (نجح '+n+')':'')+'. أول صورة فشلت: '+infoText(ff)+(fe?' — الخطأ: '+fe:'')+'. أرسل هذه الرسالة للمطوّر.' }
   })}
   function renderGalleryIfOpen(){ try{ if(!$('#photoView').hidden) renderGallery(); updatePhotoCard() }catch(e){} }
   function exportXlsx(){wrap(async function(){
@@ -1109,7 +1134,7 @@ main{padding-block:14px 120px}
   function exportZip(){wrap(async function(){
     lastWhy='';
     try{ await exportZipRun(BIGB) }
-    catch(e){ lastWhy=why(e); setBusy('تعذر تجهيز ملف واحد، أجزّئه إلى أجزاء أصغر…'); await sleep(400); await exportZipRun(SMALLB) }
+    catch(e){ throw e }
   })}
   async function exportZipRun(limB){
     var total=state.schools.reduce(function(n,s){return n+countPhotos(s)},0);
