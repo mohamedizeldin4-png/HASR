@@ -383,7 +383,7 @@ main{padding-block:14px 120px}
   /* بنود للتصوير فقط، بلا عدد */
   var PHOTO={};
   var SUBS={bld9:[['fr','افرنجي'],['ar','عربي']]};
-  var VER='14', BIGP=700*1024, MAXP=500, PHN=function(l){return 'ph_'+l}, zp=function(n,w){var t=String(n);while(t.length<w)t='0'+t;return t};
+  var VER='16', BIGP=700*1024, MAXP=500, PHN=function(l){return 'ph_'+l}, zp=function(n,w){var t=String(n);while(t.length<w)t='0'+t;return t};
   var LTAB={yd:'الساحة',g:'الأرضي',f1:'الأول',f2:'الثاني',f3:'الثالث',f4:'الرابع',rf:'السطح',na:'بلا مكان'}, LNAME={na:'بنود بلا مكان محدد'};
   LOCS.forEach(function(l){LNAME[l[0]]=l[1]});
   /* مربع صور واحد لكل مكان: معرّفه ph_ + رمز المكان. ليس بنداً في الحصر */
@@ -990,7 +990,7 @@ main{padding-block:14px 120px}
   function showShare(){
     var b=$('#rdShare'), ok=false;
     try{ if(navigator.share&&navigator.canShare&&ready){ var t=readyFiles().map(function(f){return new File([],f.name,{type:'application/zip'})}); ok=t.length&&navigator.canShare({files:t.slice(0,1)}) } }catch(e){ok=false}
-    b.hidden=!ok; if(ok) b.textContent=readyFiles().length>1?'مشاركة كل الأجزاء ('+readyFiles().length+') دفعة واحدة':'مشاركة الملف (واتساب وغيره)';
+    b.hidden=true; return; if(ok) b.textContent=readyFiles().length>1?'مشاركة كل الأجزاء ('+readyFiles().length+') دفعة واحدة':'مشاركة الملف (واتساب وغيره)';
   }
   async function shareReady(){
     try{
@@ -1044,8 +1044,8 @@ main{padding-block:14px 120px}
     var s=cur(), total=countPhotos(s), k=0;
     setBusy('جارٍ تجهيز «'+s.name+'»…'); await sleep(30);
     /* اسم الملف المنزَّل بحروف لاتينية فقط، لأن بعض المتصفحات تُسقط الاسم العربي وتحفظه باسم "download" */
-    var idx=state.schools.indexOf(s)+1, slug=String(s.name).replace(/[^A-Za-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,24); if(!/[A-Za-z]/.test(slug)) slug='';
-    var z=new MultiZip(limB), base='hasr-school'+idx+(slug?'-'+slug:'');
+    var idx=state.schools.indexOf(s)+1, slug=String(s.name).replace(/[\\\/:*?"<>|\u0000-\u001f.]+/g,' ').replace(/\s+/g,'_').replace(/^[_-]+|[_-]+$/g,'').slice(0,40);
+    var z=new MultiZip(limB), base=slug||('hasr-school'+idx);
     var xb=makeXlsx(schoolSheets(s)), root=cleanName(s.name)+'/';
     await z.addBlob(root+XFOLD+'/'+cleanName(s.name)+'.xlsx',xb); z.n=0; z.b=0; /* ورقة الحصر لا تُحسب من الصور */
     /* hasr-data.json يجعل الملف قابلاً للاستيراد في هاتف آخر؛ لكل جزء بيانه الخاص */
