@@ -38,6 +38,7 @@ button{cursor:pointer;border:0;background:none}
 .toprow{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .brand{font-family:var(--font-head);font-weight:600;font-size:13px;color:var(--muted);letter-spacing:.02em;min-width:0}
 .stat{display:block;font-family:var(--font-body);font-weight:500;font-size:12px;letter-spacing:0}
+.storebar{margin:6px 0;padding:8px 10px;border:1px solid var(--danger);border-radius:10px;font-size:13px;line-height:1.6}.storebtns{display:flex;gap:8px;margin-top:6px;flex-wrap:wrap}.storebtns .btn{flex:1;min-width:140px;padding:8px 10px;font-size:13px}
 .stat.ok{color:var(--ok)} .stat.bad{color:var(--danger);font-weight:700}
 .prog{font-variant-numeric:tabular-nums;font-size:13px;color:var(--muted);white-space:nowrap}
 .prog b{color:var(--ink);font-weight:700;font-size:15px}
@@ -217,6 +218,10 @@ main{padding-block:14px 120px}
         <span class="prog"><b id="pDone">0</b> من <span id="pAll">0</span> بنداً</span>
         <button class="help" id="helpBtn">تعليمات</button>
       </div>
+      <div id="storeBar" class="storebar" hidden>
+        <div id="storeWhy"></div>
+        <div class="storebtns"><button class="btn" id="retrySave">إعادة محاولة الحفظ</button><button class="btn ghost" id="saveCounts">احفظ الأعداد فقط (Excel)</button></div>
+      </div>
       <button class="schoolbtn" id="schoolBtn" aria-haspopup="dialog">
         <span class="nm" id="schoolName">المدرسة 1</span>
         <span class="chg">تغيير / إضافة مدرسة
@@ -383,7 +388,7 @@ main{padding-block:14px 120px}
   /* بنود للتصوير فقط، بلا عدد */
   var PHOTO={};
   var SUBS={bld9:[['fr','افرنجي'],['ar','عربي']]};
-  var VER='16', BIGP=700*1024, MAXP=500, PHN=function(l){return 'ph_'+l}, zp=function(n,w){var t=String(n);while(t.length<w)t='0'+t;return t};
+  var VER='17', BIGP=700*1024, MAXP=500, PHN=function(l){return 'ph_'+l}, zp=function(n,w){var t=String(n);while(t.length<w)t='0'+t;return t};
   var LTAB={yd:'الساحة',g:'الأرضي',f1:'الأول',f2:'الثاني',f3:'الثالث',f4:'الرابع',rf:'السطح',na:'بلا مكان'}, LNAME={na:'بنود بلا مكان محدد'};
   LOCS.forEach(function(l){LNAME[l[0]]=l[1]});
   /* مربع صور واحد لكل مكان: معرّفه ph_ + رمز المكان. ليس بنداً في الحصر */
@@ -531,6 +536,32 @@ main{padding-block:14px 120px}
     var el=$('#stat');
     if(storeOK){el.textContent='● محفوظ تلقائياً';el.className='stat ok'}
     else{el.textContent='● غير محفوظ: صدّر بعد كل مدرسة ولا تغلق الصفحة';el.className='stat bad'}
+    var bar=$('#storeBar'); if(bar){ bar.hidden=!!storeOK; if(!storeOK) $('#storeWhy').textContent=storeReason()+' لا تغلق الصفحة ولا تحدّثها. حرّر مساحة في الهاتف ثم اضغط «إعادة محاولة الحفظ»، أو احفظ الأعداد الآن.' }
+  }
+  function storeReason(){
+    if(!db) return 'المتصفح لا يسمح بالتخزين هنا (ربما تبويب خاص أو تخزين مقيّد).';
+    return 'تعذّر الكتابة في ذاكرة الهاتف (غالباً المساحة ممتلئة).';
+  }
+  var retrying=false;
+  async function retrySave(){
+    if(retrying) return; retrying=true;
+    try{
+      var b=$('#retrySave'); if(b) b.disabled=true;
+      if(!db) db=await openDB();
+      var ok=await probe();
+      if(!ok){ toast('ما زال الحفظ متعذراً. حرّر مساحة أكبر وأعد المحاولة.'); return }
+      var ids=Array.from(mem.photos.keys());
+      for(var i=0;i<ids.length;i++){
+        var r=await idb('photos','readwrite',function(s){return s.put(mem.photos.get(ids[i]),ids[i])});
+        if(r===undefined){ toast('حُفظ جزء فقط ('+i+' من '+ids.length+' صورة). حرّر مساحة أكبر وأعد المحاولة.'); return }
+      }
+      var w=await idb('state','readwrite',function(s){return s.put(JSON.parse(JSON.stringify(state)),'main')});
+      if(w===undefined){ toast('تعذر حفظ البيانات. حرّر مساحة وأعد المحاولة.'); return }
+      ids.forEach(function(id){mem.photos.delete(id)});
+      storeOK=true; mem.state=null; setStat(); toast('تم الحفظ: بياناتك وصورك محفوظة الآن');
+      try{ensureThumbs()}catch(e){}
+    }catch(e){ toast('تعذرت إعادة المحاولة.') }
+    finally{ retrying=false; var b2=$('#retrySave'); if(b2) b2.disabled=false }
   }
   async function getPhoto(id){
     if(mem.photos.has(id)) return mem.photos.get(id);
@@ -1448,6 +1479,8 @@ main{padding-block:14px 120px}
     }
     if(t.id==='expSchool'){exportSchool();return}
     if(t.id==='expXlsx'){exportXlsx();return}
+    if(t.id==='retrySave'){retrySave();return}
+    if(t.id==='saveCounts'){ var tb=document.querySelector('[data-tab="export"]'); if(tb) tb.click(); exportXlsx(); return }
     if(t.id==='expZip'){exportZip();return}
     if(t.id==='expShrink'){shrinkAll();return}
     if(t.id==='rdShare'){shareReady();return}
