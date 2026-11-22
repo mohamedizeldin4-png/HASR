@@ -388,7 +388,7 @@ main{padding-block:14px 120px}
   /* بنود للتصوير فقط، بلا عدد */
   var PHOTO={};
   var SUBS={bld9:[['fr','افرنجي'],['ar','عربي']]};
-  var VER='17', BIGP=700*1024, MAXP=500, PHN=function(l){return 'ph_'+l}, zp=function(n,w){var t=String(n);while(t.length<w)t='0'+t;return t};
+  var VER='19', BIGP=700*1024, MAXP=500, PHN=function(l){return 'ph_'+l}, zp=function(n,w){var t=String(n);while(t.length<w)t='0'+t;return t};
   var LTAB={yd:'الساحة',g:'الأرضي',f1:'الأول',f2:'الثاني',f3:'الثالث',f4:'الرابع',rf:'السطح',na:'بلا مكان'}, LNAME={na:'بنود بلا مكان محدد'};
   LOCS.forEach(function(l){LNAME[l[0]]=l[1]});
   /* مربع صور واحد لكل مكان: معرّفه ph_ + رمز المكان. ليس بنداً في الحصر */
@@ -516,12 +516,16 @@ main{padding-block:14px 120px}
       }catch(e){fin(null)}
     });
   }
+  var lastIdbErr='', stoInfo='';
+  function noteErr(e,store){ try{ lastIdbErr=(store||'')+': '+String((e&&e.name)||'خطأ')+(e&&e.message?' - '+String(e.message).slice(0,80):'') }catch(x){} }
   function idb(store,mode,op){
     return new Promise(function(res){
       try{
         var t=db.transaction(store,mode), r=op(t.objectStore(store));
-        t.oncomplete=function(){res(r&&r.result)}; t.onerror=function(){res(undefined)}; t.onabort=function(){res(undefined)};
-      }catch(e){res(undefined)}
+        t.oncomplete=function(){res(r&&r.result)};
+        t.onerror=function(){noteErr(t.error||(r&&r.error),store);res(undefined)};
+        t.onabort=function(){noteErr(t.error||(r&&r.error),store);res(undefined)};
+      }catch(e){noteErr(e,store);res(undefined)}
     });
   }
   async function probe(){
@@ -536,11 +540,16 @@ main{padding-block:14px 120px}
     var el=$('#stat');
     if(storeOK){el.textContent='● محفوظ تلقائياً';el.className='stat ok'}
     else{el.textContent='● غير محفوظ: صدّر بعد كل مدرسة ولا تغلق الصفحة';el.className='stat bad'}
-    var bar=$('#storeBar'); if(bar){ bar.hidden=!!storeOK; if(!storeOK) $('#storeWhy').textContent=storeReason()+' لا تغلق الصفحة ولا تحدّثها. حرّر مساحة في الهاتف ثم اضغط «إعادة محاولة الحفظ»، أو احفظ الأعداد الآن.' }
+    var bar=$('#storeBar'); if(bar){ bar.hidden=!!storeOK; if(!storeOK){ showWhy(); try{ if(navigator.storage&&navigator.storage.estimate) navigator.storage.estimate().then(function(q){ stoInfo='المستخدم '+Math.round((q.usage||0)/1048576)+' من '+Math.round((q.quota||0)/1048576)+' ميغابايت'; showWhy() }).catch(function(){}) }catch(e){} } }
+  }
+  function showWhy(){
+    var el=$('#storeWhy'); if(!el) return;
+    el.textContent=storeReason()+' لا تغلق الصفحة ولا تحدّثها. حرّر مساحة في الهاتف ثم اضغط «إعادة محاولة الحفظ»، أو احفظ الأعداد الآن.';
+    var d=[lastIdbErr,stoInfo].filter(Boolean).join(' | '); if(d){ var sm=document.createElement('div'); sm.style.cssText='font-size:11px;opacity:.75;direction:ltr;text-align:left;word-break:break-all;margin-top:4px'; sm.textContent=d; el.appendChild(sm) }
   }
   function storeReason(){
     if(!db) return 'المتصفح لا يسمح بالتخزين هنا (ربما تبويب خاص أو تخزين مقيّد).';
-    return 'تعذّر الكتابة في ذاكرة الهاتف (غالباً المساحة ممتلئة).';
+    return 'تعذّر الكتابة في تخزين المتصفح (قد يكون السبب المساحة أو حداً يضعه المتصفح).';
   }
   var retrying=false;
   async function retrySave(){
@@ -565,7 +574,7 @@ main{padding-block:14px 120px}
   }
   async function getPhoto(id){
     if(mem.photos.has(id)) return mem.photos.get(id);
-    if(db&&storeOK) return idb('photos','readonly',function(s){return s.get(id)});
+    if(db) return idb('photos','readonly',function(s){return s.get(id)});
     return undefined;
   }
   async function putPhoto(id,b){
@@ -579,7 +588,7 @@ main{padding-block:14px 120px}
   function delPhoto(id){
     var u=urls.get(id); if(u){try{URL.revokeObjectURL(u)}catch(e){} urls.delete(id)}
     mem.photos.delete(id);
-    if(db&&storeOK) return idb('photos','readwrite',function(s){return s.delete(id)});
+    if(db) return idb('photos','readwrite',function(s){return s.delete(id)});
     return Promise.resolve();
   }
   async function writeState(){
@@ -1559,7 +1568,7 @@ main{padding-block:14px 120px}
     db=await openDB();
     storeOK=await probe(); setStat();
     var saved=null;
-    if(storeOK){ try{ saved=await idb('state','readonly',function(s){return s.get('main')}) }catch(e){} }
+    if(db){ try{ saved=await idb('state','readonly',function(s){return s.get('main')}) }catch(e){} }
     if(saved&&Array.isArray(saved.schools)&&saved.schools.length){state=saved}
     if(!state.schools.some(function(s){return s.id===state.cur})) state.cur=state.schools[0].id;
     state.schools.forEach(normSchool);
