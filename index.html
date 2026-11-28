@@ -388,7 +388,7 @@ main{padding-block:14px 120px}
   /* بنود للتصوير فقط، بلا عدد */
   var PHOTO={};
   var SUBS={bld9:[['fr','افرنجي'],['ar','عربي']]};
-  var VER='19', BIGP=700*1024, MAXP=500, PHN=function(l){return 'ph_'+l}, zp=function(n,w){var t=String(n);while(t.length<w)t='0'+t;return t};
+  var VER='22', BIGP=700*1024, MAXP=500, PHN=function(l){return 'ph_'+l}, zp=function(n,w){var t=String(n);while(t.length<w)t='0'+t;return t};
   var LTAB={yd:'الساحة',g:'الأرضي',f1:'الأول',f2:'الثاني',f3:'الثالث',f4:'الرابع',rf:'السطح',na:'بلا مكان'}, LNAME={na:'بنود بلا مكان محدد'};
   LOCS.forEach(function(l){LNAME[l[0]]=l[1]});
   /* مربع صور واحد لكل مكان: معرّفه ph_ + رمز المكان. ليس بنداً في الحصر */
@@ -503,12 +503,12 @@ main{padding-block:14px 120px}
   }
 
   /* ================= الحالة والتخزين ================= */
-  var db=null, storeOK=false, mem={state:null,photos:new Map()}, state=null, urls=new Map(), pending=null, saveT=null, dl=null, ready=null, busy=false, errT=0;
+  var db=null, storeOK=false, trusted=false, lastCount=0, mem={state:null,photos:new Map()}, state=null, urls=new Map(), pending=null, saveT=null, dl=null, ready=null, busy=false, errT=0;
   var liveOK=false, LV=null, R={type:'bld1',loc:'',n:1,all:false}, lastRooms=null, lastZero=null, zeroArmed=false, zeroTm=null;
   function openDB(){
     return new Promise(function(res){
       var done=false, fin=function(v){if(!done){done=true;res(v)}};
-      setTimeout(function(){fin(null)},4000);
+      setTimeout(function(){fin(null)},15000);
       try{
         var r=indexedDB.open('hasr-v1',1);
         r.onupgradeneeded=function(){var d=r.result;d.createObjectStore('state');d.createObjectStore('photos');};
@@ -528,6 +528,16 @@ main{padding-block:14px 120px}
       }catch(e){noteErr(e,store);res(undefined)}
     });
   }
+  function idbGet(store,key){
+    return new Promise(function(res){
+      try{
+        var t=db.transaction(store,'readonly'), r=t.objectStore(store).get(key);
+        t.oncomplete=function(){res({ok:true,val:r.result})};
+        t.onerror=function(){noteErr(t.error,store);res({ok:false})}; t.onabort=function(){noteErr(t.error,store);res({ok:false})};
+      }catch(e){noteErr(e,store);res({ok:false})}
+    });
+  }
+  function sessionPristine(){ return state.schools.length===1&&filled(state.schools[0])===0&&countPhotos(state.schools[0])===0&&mem.photos.size===0 }
   async function probe(){
     if(!db) return false;
     try{
@@ -538,13 +548,13 @@ main{padding-block:14px 120px}
   }
   function setStat(){
     var el=$('#stat');
-    if(storeOK){el.textContent='● محفوظ تلقائياً';el.className='stat ok'}
+    if(storeOK&&trusted){el.textContent='● محفوظ تلقائياً';el.className='stat ok'}
     else{el.textContent='● غير محفوظ: صدّر بعد كل مدرسة ولا تغلق الصفحة';el.className='stat bad'}
-    var bar=$('#storeBar'); if(bar){ bar.hidden=!!storeOK; if(!storeOK){ showWhy(); try{ if(navigator.storage&&navigator.storage.estimate) navigator.storage.estimate().then(function(q){ stoInfo='المستخدم '+Math.round((q.usage||0)/1048576)+' من '+Math.round((q.quota||0)/1048576)+' ميغابايت'; showWhy() }).catch(function(){}) }catch(e){} } }
+    var bar=$('#storeBar'); if(bar){ bar.hidden=!!(storeOK&&trusted); if(!(storeOK&&trusted)){ showWhy(); try{ if(navigator.storage&&navigator.storage.estimate) navigator.storage.estimate().then(function(q){ stoInfo='المستخدم '+Math.round((q.usage||0)/1048576)+' من '+Math.round((q.quota||0)/1048576)+' ميغابايت'; showWhy() }).catch(function(){}) }catch(e){} } }
   }
   function showWhy(){
     var el=$('#storeWhy'); if(!el) return;
-    el.textContent=storeReason()+' لا تغلق الصفحة ولا تحدّثها. حرّر مساحة في الهاتف ثم اضغط «إعادة محاولة الحفظ»، أو احفظ الأعداد الآن.';
+    el.textContent=(!trusted&&storeOK?'تعذّرت قراءة بياناتك المحفوظة (وهي لم تُمسح). لا تضف ولا تحذف شيئاً، ثم اضغط «إعادة محاولة الحفظ» لإعادة قراءتها.':storeReason()+' لا تغلق الصفحة ولا تحدّثها. حرّر مساحة في الهاتف ثم اضغط «إعادة محاولة الحفظ»، أو احفظ الأعداد الآن.');
     var d=[lastIdbErr,stoInfo].filter(Boolean).join(' | '); if(d){ var sm=document.createElement('div'); sm.style.cssText='font-size:11px;opacity:.75;direction:ltr;text-align:left;word-break:break-all;margin-top:4px'; sm.textContent=d; el.appendChild(sm) }
   }
   function storeReason(){
@@ -557,6 +567,18 @@ main{padding-block:14px 120px}
     try{
       var b=$('#retrySave'); if(b) b.disabled=true;
       if(!db) db=await openDB();
+      if(!trusted){
+        if(!db){ toast('ما زال تعذّر فتح التخزين. أعد المحاولة بعد قليل ولا تضف شيئاً.'); return }
+        var rd=await idbGet('state','main');
+        if(!rd.ok){ toast('ما زالت بياناتك المحفوظة غير مقروءة. أعد المحاولة بعد قليل ولا تضف شيئاً.'); return }
+        if(rd.val&&Array.isArray(rd.val.schools)&&rd.val.schools.length){
+          if(!sessionPristine()){ toast('وُجدت بيانات محفوظة سابقاً. صدّر ما أضفته الآن أولاً، وأخبر المسؤول قبل أي حفظ.'); return }
+          state=rd.val; if(!state.schools.some(function(s){return s.id===state.cur})) state.cur=state.schools[0].id;
+          state.schools.forEach(normSchool); if(!state.tpl||typeof state.tpl!=='object') state.tpl={};
+          refreshAll(); try{ensureThumbs()}catch(e){}
+        }
+        trusted=true; lastCount=state.schools.length;
+      }
       var ok=await probe();
       if(!ok){ toast('ما زال الحفظ متعذراً. حرّر مساحة أكبر وأعد المحاولة.'); return }
       var ids=Array.from(mem.photos.keys());
@@ -593,16 +615,17 @@ main{padding-block:14px 120px}
   }
   async function writeState(){
     clearTimeout(saveT); saveT=null;
-    if(storeOK){
+    if(storeOK&&trusted){
       var r=await idb('state','readwrite',function(s){return s.put(JSON.parse(JSON.stringify(state)),'main')});
       if(r===undefined){storeOK=false;setStat();toast('تعذر الحفظ التلقائي. صدّر المدرسة الآن.')}
+      else lastCount=state.schools.length;
     } else mem.state=state;
   }
   function saveSoon(){clearTimeout(saveT);saveT=setTimeout(writeState,250)}
   document.addEventListener('visibilitychange',function(){if(document.hidden&&saveT) writeState()});
   window.addEventListener('pagehide',function(){if(saveT) writeState()});
   window.addEventListener('beforeunload',function(e){
-    if(!storeOK&&state&&state.schools.some(function(s){return filled(s)>0})){e.preventDefault();e.returnValue=''}
+    if(!(storeOK&&trusted)&&state&&state.schools.some(function(s){return filled(s)>0})){e.preventDefault();e.returnValue=''}
   });
   function onErr(){
     var n=Date.now(); if(n-errT<4000) return; errT=n;
@@ -1567,12 +1590,14 @@ main{padding-block:14px 120px}
     try{ if(window.claude&&window.claude.use){ window.claude.use('downloads').then(function(d){dl=d}).catch(function(){}) } }catch(e){}
     db=await openDB();
     storeOK=await probe(); setStat();
-    var saved=null;
-    if(db){ try{ saved=await idb('state','readonly',function(s){return s.get('main')}) }catch(e){} }
+    var saved=null, rd={ok:false};
+    if(db){ try{ rd=await idbGet('state','main'); if(!rd.ok){ await sleep(1000); rd=await idbGet('state','main') } if(rd.ok) saved=rd.val }catch(e){} }
+    trusted=!!(db&&rd.ok);
     if(saved&&Array.isArray(saved.schools)&&saved.schools.length){state=saved}
     if(!state.schools.some(function(s){return s.id===state.cur})) state.cur=state.schools[0].id;
     state.schools.forEach(normSchool);
     if(!state.tpl||typeof state.tpl!=='object') state.tpl={};
+    if(trusted) lastCount=state.schools.length; setStat();
     /* رابط من صفحة «مواعيدي»: index.html#school=مدرسة 40 يفتح هذه المدرسة، وينشئها إن لم تكن موجودة */
     try{
       var hm=location.hash.match(/^#school=(.+)$/);

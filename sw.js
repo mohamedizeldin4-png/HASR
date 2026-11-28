@@ -1,5 +1,5 @@
 /* يخزّن الصفحة على الهاتف بعد أول فتح بالإنترنت، فتعمل بعدها دون اتصال. عند وصول نسخة جديدة تُحدَّث الصفحة المفتوحة تلقائياً */
-var V='hasr-pwa-v11';
+var V='hasr-pwa-v14';
 var CORE=['./','./index.html','./manifest-hasr.json','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',function(e){
   e.waitUntil(caches.open(V).then(function(c){
